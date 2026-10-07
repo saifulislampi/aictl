@@ -1,0 +1,163 @@
+\
+from __future__ import annotations
+
+import os
+import shlex
+from dataclasses import dataclass
+from pathlib import Path
+
+CONFIG_DIR = Path(
+    os.environ.get("AICTL_CONFIG_DIR", Path.home() / ".config" / "aictl")
+).expanduser()
+
+ENV_FILE = Path(
+    os.environ.get("AICTL_ENV_FILE", CONFIG_DIR / ".env")
+).expanduser()
+
+STATE_DIR = Path(
+    os.environ.get("AICTL_STATE_DIR", Path.home() / ".local" / "state" / "aictl")
+).expanduser()
+
+STATE_FILE = STATE_DIR / "state.json"
+
+DEFAULT_ENV = """\
+# aictl personal configuration
+
+AICTL_REMOTE_OLLAMA_URL=http://127.0.0.1:11435
+AICTL_REMOTE_TUNNEL_NAME=remote-llm
+AICTL_REMOTE_CONNECT_COMMAND=tunnel connect {tunnel}
+AICTL_REMOTE_DISCONNECT_COMMAND=tunnel disconnect {tunnel}
+
+AICTL_LOCAL_OLLAMA_URL=http://127.0.0.1:11434
+AICTL_LOCAL_OLLAMA_SESSION=local-ollama
+AICTL_LOCAL_OLLAMA_START_COMMAND=ollama serve
+
+AICTL_WEBUI_HOST=127.0.0.1
+AICTL_WEBUI_PORT=8080
+AICTL_WEBUI_SESSION=open-webui
+AICTL_WEBUI_DATA_DIR=~/.local-ai/open-webui
+AICTL_WEBUI_PYTHON=3.11
+"""
+
+
+def parse_dotenv(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+
+    if not path.exists():
+        return values
+
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.strip()
+
+        if not line or line.startswith("#"):
+            continue
+
+        if line.startswith("export "):
+            line = line[7:].strip()
+
+        if "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+
+        if (
+            len(value) >= 2
+            and value[0] == value[-1]
+            and value[0] in {"'", '"'}
+        ):
+            value = value[1:-1]
+
+        values[key] = value
+
+    return values
+
+
+def env_value(values: dict[str, str], key: str, default: str) -> str:
+    return os.environ.get(key, values.get(key, default))
+
+
+def command_from_string(value: str, **replacements: str) -> list[str]:
+    return shlex.split(value.format(**replacements))
+
+
+@dataclass(frozen=True)
+class Settings:
+    remote_ollama_url: str
+    remote_tunnel_name: str
+    remote_connect_command: list[str]
+    remote_disconnect_command: list[str]
+    local_ollama_url: str
+    local_ollama_session: str
+    local_ollama_start_command: list[str]
+    webui_host: str
+    webui_port: int
+    webui_session: str
+    webui_data_dir: Path
+    webui_python: str
+
+
+def load_settings() -> Settings:
+    values = parse_dotenv(ENV_FILE)
+
+    tunnel = env_value(values, "AICTL_REMOTE_TUNNEL_NAME", "remote-llm")
+
+    return Settings(
+        remote_ollama_url=env_value(
+            values, "AICTL_REMOTE_OLLAMA_URL", "http://127.0.0.1:11435"
+        ).rstrip("/"),
+        remote_tunnel_name=tunnel,
+        remote_connect_command=command_from_string(
+            env_value(
+                values,
+                "AICTL_REMOTE_CONNECT_COMMAND",
+                "tunnel connect {tunnel}",
+            ),
+            tunnel=tunnel,
+        ),
+        remote_disconnect_command=command_from_string(
+            env_value(
+                values,
+                "AICTL_REMOTE_DISCONNECT_COMMAND",
+                "tunnel disconnect {tunnel}",
+            ),
+            tunnel=tunnel,
+        ),
+        local_ollama_url=env_value(
+            values, "AICTL_LOCAL_OLLAMA_URL", "http://127.0.0.1:11434"
+        ).rstrip("/"),
+        local_ollama_session=env_value(
+            values, "AICTL_LOCAL_OLLAMA_SESSION", "local-ollama"
+        ),
+        local_ollama_start_command=command_from_string(
+            env_value(
+                values,
+                "AICTL_LOCAL_OLLAMA_START_COMMAND",
+                "ollama serve",
+            )
+        ),
+        webui_host=env_value(values, "AICTL_WEBUI_HOST", "127.0.0.1"),
+        webui_port=int(env_value(values, "AICTL_WEBUI_PORT", "8080")),
+        webui_session=env_value(
+            values, "AICTL_WEBUI_SESSION", "open-webui"
+        ),
+        webui_data_dir=Path(
+            env_value(
+                values,
+                "AICTL_WEBUI_DATA_DIR",
+                "~/.local-ai/open-webui",
+            )
+        ).expanduser(),
+        webui_python=env_value(values, "AICTL_WEBUI_PYTHON", "3.11"),
+    )
+
+
+def init_user_config(force: bool = False) -> Path:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+    if ENV_FILE.exists() and not force:
+        return ENV_FILE
+
+    ENV_FILE.write_text(DEFAULT_ENV)
+    return ENV_FILE
