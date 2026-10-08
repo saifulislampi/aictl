@@ -68,7 +68,6 @@ aictl backend switch remote
 aictl backend switch local
 
 aictl backend use remote
-aictl backend attach remote
 aictl backend attach local
 
 aictl backend stop remote
@@ -76,7 +75,6 @@ aictl backend stop local
 
 aictl tunnel connect
 aictl tunnel status
-aictl tunnel attach
 aictl tunnel disconnect
 
 aictl models
@@ -98,15 +96,20 @@ The Python package itself has no third-party dependencies.
 Required:
 
 - Python 3.11+
-- `tmux`
 
-For local Ollama:
+For remote Ollama:
+
+- OpenSSH (`ssh`)
+
+For an aictl-managed local Ollama:
 
 - Ollama
+- `tmux`
 
 For Open WebUI:
 
 - `uv` / `uvx`
+- `tmux`
 
 On macOS:
 
@@ -115,7 +118,7 @@ brew install tmux
 brew install uv
 ```
 
-For a remote backend, OpenSSH (`ssh`) and tmux are required. Tunnel management
+For a remote backend, OpenSSH (`ssh`) is required. Tunnel management
 is built in; configure the connection in your `.env`.
 The remote machine must already run Ollama and allow SSH access. `aictl` manages
 the local tunnel; it does not install or start Ollama on the remote machine.
@@ -172,9 +175,10 @@ aictl models
 aictl webui start
 ```
 
-Open `http://127.0.0.1:8080` in your browser. If the switch reports that the
-endpoint is not responding, use `aictl tunnel attach` to inspect SSH output or
-complete authentication, detach with **Ctrl-b, then d**, and retry the switch.
+SSH prompts for host confirmation, a password, or a key passphrase directly
+in your terminal. After authentication, `aictl` reports that SSH connected and
+checks whether Ollama is ready. The tunnel continues in the background while
+the command returns to your shell. Open `http://127.0.0.1:8080` in your browser.
 
 ## Personal configuration
 
@@ -255,9 +259,10 @@ and state file paths.
 
 ## Remote backend
 
-`aictl` creates and manages the SSH tunnel directly. No separate `tunnel`
-script or `~/.ssh/config` entry is needed. It invokes `ssh -F /dev/null` with
-explicit connection and forwarding options.
+Python manages an OpenSSH background connection directly. SSH authentication
+happens in your current terminal; there is no tmux window to open or detach
+from. No separate `tunnel` script or `~/.ssh/config` entry is needed. All SSH
+connection and forwarding options come from config or environment variables.
 
 Set these values in `~/.config/aictl/.env` (or export them in your environment):
 
@@ -267,7 +272,7 @@ Set these values in `~/.config/aictl/.env` (or export them in your environment):
 | `AICTL_REMOTE_SSH_USER` | SSH login username | current local username |
 | `AICTL_REMOTE_SSH_PORT` | SSH server port | `22` |
 | `AICTL_REMOTE_SSH_IDENTITY_FILE` | Optional private key path | SSH default keys / agent |
-| `AICTL_REMOTE_TUNNEL_NAME` | tmux session name | `remote-llm` |
+| `AICTL_REMOTE_TUNNEL_NAME` | Name identifying the managed connection | `remote-llm` |
 | `AICTL_REMOTE_OLLAMA_URL` | Local loopback HTTP endpoint; determines the forward's bind address and port | `http://127.0.0.1:11435` |
 | `AICTL_REMOTE_OLLAMA_HOST` | Ollama host as reached from the SSH server | `127.0.0.1` |
 | `AICTL_REMOTE_OLLAMA_PORT` | Ollama port on that host | `11434` |
@@ -278,24 +283,49 @@ If your connection previously relied on SSH config for the username, port, or
 identity file, put those values in the corresponding settings above.
 
 ```bash
-aictl backend switch remote  # creates the tunnel if the endpoint is unreachable
-aictl tunnel connect         # starts the tunnel without changing active backend
-aictl tunnel status          # shows tmux session and endpoint health separately
-aictl tunnel attach          # inspect SSH output or answer authentication prompts
-aictl tunnel disconnect      # stops the managed tmux session and its SSH tunnel
+aictl backend switch remote  # connects only when needed, then selects remote
+aictl tunnel connect         # connects without changing the active backend
+aictl tunnel status          # checks SSH connection and Ollama separately
+aictl tunnel disconnect      # stops the managed background connection
 ```
 
-An existing reachable endpoint is reused. If the endpoint is down but the tmux
-session exists, `aictl` waits for it rather than creating a duplicate session.
-The session retries SSH every five seconds after disconnection; keepalive
-options detect broken connections, and forwarding failures cause SSH to exit.
-A failed readiness check leaves the session available for inspection and does
-not change the selected backend.
+### Authentication and connection feedback
 
-For a first connection or interactive authentication, run `aictl tunnel attach`
-to confirm the host or enter your password/key passphrase. Detach with **Ctrl-b,
-then d**, and retry `aictl backend switch remote`. SSH uses its normal known-hosts
-verification. Passwords are entered in the SSH terminal, not stored in `.env`.
+When a new tunnel is needed, SSH prompts in your current terminal. Leave
+`AICTL_REMOTE_SSH_IDENTITY_FILE` empty to use SSH's default keys, agent, or
+password authentication. A password prompt appears only when SSH needs one.
+If you configure a private key that requires a passphrase, its prompt appears
+in the same terminal. SSH uses its normal known-hosts verification; passwords
+are never stored in `.env` or handled by Python.
+
+After successful authentication, output looks like this:
+
+```text
+remote: SSH connected; tunnel running in the background
+remote: Ollama is ready
+Endpoint: http://127.0.0.1:11435
+Active backend: remote
+Endpoint: http://127.0.0.1:11435
+```
+
+SSH backgrounding uses `-f`, which authenticates before leaving the foreground.
+A control socket lets Python check and stop the connection later. See the
+[OpenSSH manual](https://man.openbsd.org/ssh) for these options.
+
+An already reachable endpoint is reused without opening a new connection.
+`aictl backend switch remote` prints that it is using the existing connection.
+If a managed SSH connection exists but Ollama is down, `aictl` checks the
+endpoint without starting another SSH process for the tunnel. Concurrent
+connect and disconnect commands are serialized by a local file lock.
+
+Commands without an interactive terminal use SSH batch mode, so they require
+keys or an agent and fail instead of waiting for a password prompt. SSH errors
+remain visible. A failed connection or readiness check does not change the
+selected backend.
+
+Keepalive options detect broken connections. If the connection drops, run
+`aictl tunnel connect` or `aictl backend switch remote` to reconnect. The new
+background connection does not run the old tmux retry loop.
 
 ### Updating tunnel settings
 
@@ -307,10 +337,11 @@ aictl tunnel disconnect
 aictl backend switch remote
 ```
 
-Disconnect before changing `AICTL_REMOTE_TUNNEL_NAME`, so the old session can
-still be found and stopped.
+Disconnect before changing `AICTL_REMOTE_TUNNEL_NAME` or `AICTL_STATE_DIR`, so
+the old connection can still be found and stopped. Control sockets live under
+`AICTL_STATE_DIR/tunnels` (by default `~/.local/state/aictl/tunnels`).
 
-### Migrating from the external tunnel helper
+### Migrating from tmux or an external tunnel helper
 
 Remove `AICTL_REMOTE_CONNECT_COMMAND` and `AICTL_REMOTE_DISCONNECT_COMMAND`
 from your `.env`; they are no longer used. Add the SSH settings from the table
@@ -318,22 +349,30 @@ above. Copy the actual hostname, username, port, and identity path from any SSH
 config entry you previously used. SSH config aliases and forwarding rules are
 not read by the built-in tunnel.
 
-Stop any tunnel started by the old helper before creating the replacement.
-If it used the same session name configured in `AICTL_REMOTE_TUNNEL_NAME`,
-`aictl tunnel disconnect` can stop it. Then run `aictl backend switch remote`.
+A working old tunnel is reused. If the endpoint is unreachable and a tmux
+session with the configured `AICTL_REMOTE_TUNNEL_NAME` exists, `aictl` stops that
+old session before creating the new background connection. `aictl tunnel
+disconnect` can also stop an old tunnel with that session name. Tunnels with
+other names must be stopped using the tool that created them.
+
+The previous `aictl tunnel attach` and `aictl backend attach remote` commands
+now show authentication guidance and status; they do not open tmux.
 
 ### Troubleshooting
 
 | Symptom | What to check |
 | --- | --- |
 | SSH host is not configured | Set `AICTL_REMOTE_SSH_HOST` in your config or environment. |
-| SSH or tmux is missing | Run `aictl doctor` and install the missing command. |
-| Tunnel session runs but Ollama is unreachable | Run `aictl tunnel attach`; complete authentication or inspect the SSH error. Check that remote Ollama is running and its host/port match your settings. |
+| SSH is missing | Run `aictl doctor` and install OpenSSH. |
+| Authentication fails | Read the SSH error in your terminal; check the username, key, and SSH port. |
+| SSH connects but Ollama is unreachable | Check that remote Ollama is running and its host/port match `AICTL_REMOTE_OLLAMA_HOST` and `AICTL_REMOTE_OLLAMA_PORT`. |
 | Local forwarding port is already in use | Stop the conflicting tunnel/service or choose a different port in `AICTL_REMOTE_OLLAMA_URL`. |
 | Changed settings have no effect | Disconnect and recreate the tunnel. |
+| Control socket path is too long | Set `AICTL_STATE_DIR` to a shorter directory path. |
 
-`aictl tunnel status` reports tmux session state and Ollama HTTP reachability
-separately. A reachable endpoint alone does not mean it is managed by `aictl`.
+`aictl tunnel status` reports the managed SSH connection and Ollama HTTP
+reachability separately. A reachable endpoint alone does not mean it is
+managed by `aictl`.
 
 ## Local backend
 

@@ -24,6 +24,7 @@ DEFAULT_ENV = """\
 # aictl personal configuration
 
 AICTL_REMOTE_OLLAMA_URL=http://127.0.0.1:11435
+# Name identifying the managed SSH connection.
 AICTL_REMOTE_TUNNEL_NAME=remote-llm
 # Use a real hostname/IP; SSH config aliases are not used.
 AICTL_REMOTE_SSH_HOST=

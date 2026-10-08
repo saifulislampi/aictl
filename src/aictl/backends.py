@@ -148,7 +148,9 @@ def use(settings: Settings, name: str) -> None:
 def switch(settings: Settings, name: str) -> bool:
     backend = get_backend(settings, name)
 
-    if not reachable(backend):
+    if reachable(backend):
+        print(f"{backend.name}: already reachable; using the existing connection")
+    else:
         if not start(settings, backend.name):
             return False
 

@@ -47,8 +47,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     tunnel_p = sub.add_parser("tunnel", help="Manage the built-in remote SSH tunnel")
     tunnel_sub = tunnel_p.add_subparsers(dest="tunnel_command", required=True)
-    for action in ("connect", "disconnect", "status", "attach"):
+    for action in ("connect", "disconnect", "status"):
         tunnel_sub.add_parser(action)
+    tunnel_sub.add_parser("attach", help="Show status; authentication happens during connect")
 
     models_p = sub.add_parser("models", help="List models on a backend")
     models_p.add_argument("--backend", choices=["local", "remote"])
