@@ -43,6 +43,13 @@ AICTL_WEBUI_PORT=8080
 AICTL_WEBUI_SESSION=open-webui
 AICTL_WEBUI_DATA_DIR=~/.local-ai/open-webui
 AICTL_WEBUI_PYTHON=3.11
+
+# Local hostname proxy (HTTP, accessible only on this machine).
+AICTL_PROXY_HOSTNAME=localai
+AICTL_PROXY_BIND=127.0.0.2
+AICTL_PROXY_PORT=80
+AICTL_PROXY_UPSTREAM=http://127.0.0.1:9090
+AICTL_PROXY_ADMIN_PORT=2020
 """
 
 
@@ -106,6 +113,11 @@ class Settings:
     remote_ssh_identity_file: Path | None = None
     remote_ollama_host: str = "127.0.0.1"
     remote_ollama_port: int = 11434
+    proxy_hostname: str = "localai"
+    proxy_bind: str = "127.0.0.2"
+    proxy_port: int = 80
+    proxy_upstream: str = "http://127.0.0.1:9090"
+    proxy_admin_port: int = 2020
 
 
 def load_settings() -> Settings:
@@ -153,6 +165,13 @@ def load_settings() -> Settings:
             )
         ).expanduser(),
         webui_python=env_value(values, "AICTL_WEBUI_PYTHON", "3.11"),
+        proxy_hostname=env_value(values, "AICTL_PROXY_HOSTNAME", "localai"),
+        proxy_bind=env_value(values, "AICTL_PROXY_BIND", "127.0.0.2"),
+        proxy_port=int(env_value(values, "AICTL_PROXY_PORT", "80")),
+        proxy_upstream=env_value(
+            values, "AICTL_PROXY_UPSTREAM", "http://127.0.0.1:9090"
+        ).rstrip("/"),
+        proxy_admin_port=int(env_value(values, "AICTL_PROXY_ADMIN_PORT", "2020")),
     )
 
 

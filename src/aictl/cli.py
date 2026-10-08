@@ -6,7 +6,7 @@ import shutil
 import sys
 
 from . import __version__
-from . import backends, tunnels, webui
+from . import backends, proxy, tunnels, webui
 from .backends import BackendError
 from .settings import ENV_FILE, STATE_FILE, init_user_config, load_settings
 from .state import active_backend
@@ -63,12 +63,22 @@ def build_parser() -> argparse.ArgumentParser:
     logs_p = webui_sub.add_parser("logs")
     logs_p.add_argument("-n", "--lines", type=int, default=100)
 
+    proxy_p = sub.add_parser("proxy", help="Manage a local hostname proxy with Caddy")
+    proxy_sub = proxy_p.add_subparsers(dest="proxy_command", required=True)
+    setup_p = proxy_sub.add_parser("setup")
+    setup_p.add_argument(
+        "--apply", action="store_true",
+        help="Create a missing macOS loopback alias using sudo",
+    )
+    for action in ("start", "run", "status", "stop"):
+        proxy_sub.add_parser(action)
+
     return parser
 
 
 def cmd_doctor(settings) -> None:
     print("Commands:")
-    for command in ("python3", "tmux", "uvx", "ssh", "ollama"):
+    for command in ("python3", "tmux", "uvx", "ssh", "ollama", "caddy"):
         path = shutil.which(command)
         print(f"  {command:<10} {path or 'NOT FOUND'}")
 
@@ -121,6 +131,19 @@ def main() -> int:
 
         elif args.command == "models":
             backends.list_models(settings, args.backend)
+
+        elif args.command == "proxy":
+            action = args.proxy_command
+            if action == "setup":
+                if not proxy.setup(settings, apply=args.apply):
+                    return 1
+            elif action in {"start", "run"}:
+                if not proxy.start(settings, foreground=action == "run"):
+                    return 1
+            elif action == "status":
+                proxy.status(settings)
+            elif action == "stop":
+                proxy.stop(settings)
 
         elif args.command == "tunnel":
             action = args.tunnel_command

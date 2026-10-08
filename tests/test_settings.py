@@ -130,5 +130,30 @@ class InitConfigTests(unittest.TestCase):
                 self.assertIn(str(path), output.getvalue())
 
 
+class ProxySettingsTests(unittest.TestCase):
+    def test_proxy_environment_overrides_config(self):
+        import os
+        from aictl.settings import load_settings
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".env"
+            path.write_text(
+                "AICTL_PROXY_HOSTNAME=localai\n"
+                "AICTL_PROXY_BIND=127.0.0.3\n"
+                "AICTL_PROXY_PORT=8081\n"
+                "AICTL_PROXY_UPSTREAM=http://127.0.0.1:8080\n"
+                "AICTL_PROXY_ADMIN_PORT=2021\n"
+            )
+            with patch("aictl.settings.ENV_FILE", path), patch.dict(
+                os.environ, {"AICTL_PROXY_HOSTNAME": "ai.test"}, clear=True,
+            ):
+                settings = load_settings()
+            self.assertEqual(settings.proxy_hostname, "ai.test")
+            self.assertEqual(settings.proxy_bind, "127.0.0.3")
+            self.assertEqual(settings.proxy_port, 8081)
+            self.assertEqual(settings.proxy_upstream, "http://127.0.0.1:8080")
+            self.assertEqual(settings.proxy_admin_port, 2021)
+
+
 if __name__ == "__main__":
     unittest.main()

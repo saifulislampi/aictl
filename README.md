@@ -12,6 +12,7 @@ The current version focuses on:
 - remote Ollama reached through an SSH tunnel,
 - built-in SSH tunnel management configured through `.env` or environment variables,
 - Open WebUI,
+- local hostname access through Caddy,
 - tmux-managed services.
 
 Machine-specific information is deliberately kept **outside the repository**.
@@ -87,6 +88,13 @@ aictl webui logs
 aictl webui attach
 aictl webui restart
 aictl webui stop
+
+aictl proxy setup
+aictl proxy setup --apply
+aictl proxy start
+aictl proxy run
+aictl proxy status
+aictl proxy stop
 ```
 
 ## Requirements
@@ -117,6 +125,12 @@ On macOS:
 brew install tmux
 brew install uv
 ```
+
+For the optional local hostname proxy:
+
+- Caddy (`brew install caddy` on macOS)
+- a hosts-file entry for the configured hostname
+- the configured loopback address
 
 For a remote backend, OpenSSH (`ssh`) is required. Tunnel management
 is built in; configure the connection in your `.env`.
@@ -457,6 +471,116 @@ Open WebUI data defaults to:
 ```text
 ~/.local-ai/open-webui
 ```
+
+## Local hostname proxy
+
+Use Caddy to access a local application at `http://localai` without typing its
+port. The defaults match this setup:
+
+```text
+http://localai -> 127.0.0.2:80 -> http://127.0.0.1:9090
+```
+
+Configure the proxy through `~/.config/aictl/.env` or environment variables:
+
+```dotenv
+AICTL_PROXY_HOSTNAME=localai
+AICTL_PROXY_BIND=127.0.0.2
+AICTL_PROXY_PORT=80
+AICTL_PROXY_UPSTREAM=http://127.0.0.1:9090
+AICTL_PROXY_ADMIN_PORT=2020
+```
+
+`AICTL_PROXY_UPSTREAM` is independent of the Open WebUI settings. If your WebUI
+runs on the default port `8080`, set it to `http://127.0.0.1:8080` instead.
+The proxy hostname, bind address, and upstream are validated before generating
+a configuration. The listener and upstream must use loopback addresses.
+
+### Check installation and hostname setup
+
+```bash
+aictl proxy setup
+```
+
+This checks for Caddy first, verifies the hostname resolves to the configured
+IPv4 address, and checks that the loopback address is available. If something
+is missing, it prints the relevant setup instructions. On macOS these are:
+
+```bash
+brew install caddy
+sudo nano /etc/hosts
+```
+
+Add this hosts-file entry, keeping existing entries and correcting any
+conflicting mapping for the same hostname:
+
+```text
+127.0.0.2 localai
+```
+
+To let the tool create a missing loopback alias on macOS:
+
+```bash
+aictl proxy setup --apply
+```
+
+This runs the following command using the configured `AICTL_PROXY_BIND`, with
+a visible sudo password prompt when needed:
+
+```bash
+sudo ifconfig lo0 inet 127.0.0.2 netmask 255.255.255.255 alias
+```
+
+The alias disappears after reboot, but `aictl proxy start` and `aictl proxy run`
+automatically recreate it when missing on macOS. An existing alias is reused
+without running sudo or ifconfig. Caddy and the hostname mapping must be ready
+before the tool creates the alias. Using `127.0.0.1` for
+`AICTL_PROXY_BIND` avoids needing an extra alias; update the hosts entry too.
+Plain `setup` only checks readiness. `setup --apply`, `start`, and `run` can
+create the loopback alias, but leave `/etc/hosts` and package installation to
+the displayed instructions. An incomplete setup exits with
+status 1. Other platforms receive a link to the official Caddy installation
+instructions.
+
+### Start and manage the proxy
+
+```bash
+aictl proxy start   # run Caddy in the background
+aictl proxy status  # hostname, managed Caddy, proxy HTTP, and upstream HTTP
+aictl proxy stop    # stop the Caddy instance managed by aictl
+```
+
+Then open `http://localai` in your browser. Start the upstream application
+separately; an HTTP 502 from the proxy means it could not reach the upstream.
+
+For the equivalent of your manual `sudo caddy run --config Caddyfile` command:
+
+```bash
+aictl proxy run
+```
+
+This runs Caddy in the foreground with logs visible; press **Ctrl-C** to stop.
+Both `start` and `run` validate the generated Caddy configuration before
+launching. For ports below 1024, `aictl` invokes `sudo` for Caddy when needed,
+so its password prompt stays visible. Run `aictl` as your normal user to keep
+its config and state paths consistent. Higher ports can run without sudo,
+but must appear in the browser URL.
+
+The generated Caddyfile lives at `~/.local/state/aictl/proxy/Caddyfile`, with
+an adapted-config snapshot beside it. Your manually maintained Caddyfile is
+not used or overwritten. A dedicated loopback admin API at
+`127.0.0.1:2020` keeps this instance separate from Caddy's usual admin listener.
+`proxy stop` verifies the running config matches the managed snapshot before
+stopping it. An existing HTTP listener is reused without taking ownership;
+stop a manually launched proxy using the command or terminal that started it.
+
+After changing proxy settings, run `aictl proxy stop`, then `aictl proxy start`.
+Stop before changing `AICTL_PROXY_ADMIN_PORT` or `AICTL_STATE_DIR`, so the
+existing instance can still be located. If another Caddy instance uses the
+configured admin port, choose a different `AICTL_PROXY_ADMIN_PORT`.
+
+See the [Caddy installation guide](https://caddyserver.com/docs/install) and
+[command-line documentation](https://caddyserver.com/docs/command-line).
 
 ## State
 
