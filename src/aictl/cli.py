@@ -95,8 +95,14 @@ def main() -> int:
 
     try:
         if args.command == "init":
+            existed = ENV_FILE.exists()
             path = init_user_config(force=args.force)
-            print(f"Config: {path}")
+            if existed and not args.force:
+                print(f"Config already exists; kept unchanged: {path}")
+            elif existed:
+                print(f"Replaced config: {path}")
+            else:
+                print(f"Created config: {path}")
             print("Edit this file to set your tunnel name, ports, and local paths.")
             return 0
 

@@ -222,6 +222,14 @@ AICTL_WEBUI_PYTHON=3.11
 The repo contains `.env.example`, but your real `.env` stays outside Git.
 `aictl init` preserves an existing configuration. `aictl init --force` replaces
 it with the default template, so edit an existing file to keep your settings.
+The command reports whether it created, preserved, or replaced the file.
+The `.env` filename is hidden; it is created in `~/.config/aictl`, not in the
+repository. To locate and list it:
+
+```bash
+aictl config
+ls -la ~/.config/aictl
+```
 
 ### Environment overrides
 

@@ -156,10 +156,12 @@ def load_settings() -> Settings:
 
 
 def init_user_config(force: bool = False) -> Path:
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-
     if ENV_FILE.exists() and not force:
         return ENV_FILE
 
-    ENV_FILE.write_text(DEFAULT_ENV)
+    try:
+        ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
+        ENV_FILE.write_text(DEFAULT_ENV)
+    except OSError as exc:
+        raise RuntimeError(f"Could not create config at {ENV_FILE}: {exc}") from exc
     return ENV_FILE
