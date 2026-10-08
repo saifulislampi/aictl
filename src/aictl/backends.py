@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
+from . import tunnels
 from .settings import Settings
 from .state import active_backend, set_active_backend
 from .utils import command_exists, http_json, http_ok, human_bytes, run, tmux_has
@@ -68,27 +69,7 @@ def start(settings: Settings, name: str) -> bool:
         return True
 
     if backend.name == "remote":
-        command = settings.remote_connect_command
-
-        if not command_exists(command[0]):
-            raise BackendError(
-                f"Remote backend requires '{command[0]}', "
-                "but it was not found in PATH."
-            )
-
-        print(f"Connecting remote backend using: {shlex.join(command)}")
-        result = run(command)
-
-        if result.returncode != 0:
-            return False
-
-        if wait_until_reachable(backend):
-            print("remote: reachable")
-            print(f"Endpoint: {backend.url}")
-            return True
-
-        print("remote: connect command returned, but Ollama is still unreachable.")
-        return False
+        return tunnels.start(settings)
 
     command = settings.local_ollama_start_command
     session = settings.local_ollama_session
@@ -123,10 +104,7 @@ def stop(settings: Settings, name: str) -> None:
     backend = get_backend(settings, name)
 
     if backend.name == "remote":
-        command = settings.remote_disconnect_command
-        if not command_exists(command[0]):
-            raise BackendError(f"'{command[0]}' was not found in PATH.")
-        run(command)
+        tunnels.stop(settings)
         return
 
     session = settings.local_ollama_session
@@ -146,11 +124,11 @@ def stop(settings: Settings, name: str) -> None:
 def attach(settings: Settings, name: str) -> None:
     backend = get_backend(settings, name)
 
-    session = (
-        settings.remote_tunnel_name
-        if backend.name == "remote"
-        else settings.local_ollama_session
-    )
+    if backend.name == "remote":
+        tunnels.attach(settings)
+        return
+
+    session = settings.local_ollama_session
 
     if not tmux_has(session):
         raise BackendError(f"tmux session '{session}' does not exist.")

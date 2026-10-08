@@ -25,8 +25,13 @@ DEFAULT_ENV = """\
 
 AICTL_REMOTE_OLLAMA_URL=http://127.0.0.1:11435
 AICTL_REMOTE_TUNNEL_NAME=remote-llm
-AICTL_REMOTE_CONNECT_COMMAND=tunnel connect {tunnel}
-AICTL_REMOTE_DISCONNECT_COMMAND=tunnel disconnect {tunnel}
+# Use a real hostname/IP; SSH config aliases are not used.
+AICTL_REMOTE_SSH_HOST=
+AICTL_REMOTE_SSH_USER=
+AICTL_REMOTE_SSH_PORT=22
+AICTL_REMOTE_SSH_IDENTITY_FILE=
+AICTL_REMOTE_OLLAMA_HOST=127.0.0.1
+AICTL_REMOTE_OLLAMA_PORT=11434
 
 AICTL_LOCAL_OLLAMA_URL=http://127.0.0.1:11434
 AICTL_LOCAL_OLLAMA_SESSION=local-ollama
@@ -86,8 +91,6 @@ def command_from_string(value: str, **replacements: str) -> list[str]:
 class Settings:
     remote_ollama_url: str
     remote_tunnel_name: str
-    remote_connect_command: list[str]
-    remote_disconnect_command: list[str]
     local_ollama_url: str
     local_ollama_session: str
     local_ollama_start_command: list[str]
@@ -96,34 +99,33 @@ class Settings:
     webui_session: str
     webui_data_dir: Path
     webui_python: str
+    remote_ssh_host: str = ""
+    remote_ssh_user: str = ""
+    remote_ssh_port: int = 22
+    remote_ssh_identity_file: Path | None = None
+    remote_ollama_host: str = "127.0.0.1"
+    remote_ollama_port: int = 11434
 
 
 def load_settings() -> Settings:
     values = parse_dotenv(ENV_FILE)
 
     tunnel = env_value(values, "AICTL_REMOTE_TUNNEL_NAME", "remote-llm")
+    identity = env_value(values, "AICTL_REMOTE_SSH_IDENTITY_FILE", "")
 
     return Settings(
         remote_ollama_url=env_value(
             values, "AICTL_REMOTE_OLLAMA_URL", "http://127.0.0.1:11435"
         ).rstrip("/"),
         remote_tunnel_name=tunnel,
-        remote_connect_command=command_from_string(
-            env_value(
-                values,
-                "AICTL_REMOTE_CONNECT_COMMAND",
-                "tunnel connect {tunnel}",
-            ),
-            tunnel=tunnel,
+        remote_ssh_host=env_value(values, "AICTL_REMOTE_SSH_HOST", ""),
+        remote_ssh_user=env_value(values, "AICTL_REMOTE_SSH_USER", ""),
+        remote_ssh_port=int(env_value(values, "AICTL_REMOTE_SSH_PORT", "22")),
+        remote_ssh_identity_file=(
+            Path(identity).expanduser() if identity else None
         ),
-        remote_disconnect_command=command_from_string(
-            env_value(
-                values,
-                "AICTL_REMOTE_DISCONNECT_COMMAND",
-                "tunnel disconnect {tunnel}",
-            ),
-            tunnel=tunnel,
-        ),
+        remote_ollama_host=env_value(values, "AICTL_REMOTE_OLLAMA_HOST", "127.0.0.1"),
+        remote_ollama_port=int(env_value(values, "AICTL_REMOTE_OLLAMA_PORT", "11434")),
         local_ollama_url=env_value(
             values, "AICTL_LOCAL_OLLAMA_URL", "http://127.0.0.1:11434"
         ).rstrip("/"),

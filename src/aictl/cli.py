@@ -6,7 +6,7 @@ import shutil
 import sys
 
 from . import __version__
-from . import backends, webui
+from . import backends, tunnels, webui
 from .backends import BackendError
 from .settings import ENV_FILE, STATE_FILE, init_user_config, load_settings
 from .state import active_backend
@@ -45,6 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
         p = backend_sub.add_parser(action)
         p.add_argument("name")
 
+    tunnel_p = sub.add_parser("tunnel", help="Manage the built-in remote SSH tunnel")
+    tunnel_sub = tunnel_p.add_subparsers(dest="tunnel_command", required=True)
+    for action in ("connect", "disconnect", "status", "attach"):
+        tunnel_sub.add_parser(action)
+
     models_p = sub.add_parser("models", help="List models on a backend")
     models_p.add_argument("--backend", choices=["local", "remote"])
 
@@ -62,12 +67,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def cmd_doctor(settings) -> None:
     print("Commands:")
-    for command in ("python3", "tmux", "uvx", "tunnel", "ollama"):
+    for command in ("python3", "tmux", "uvx", "ssh", "ollama"):
         path = shutil.which(command)
         print(f"  {command:<10} {path or 'NOT FOUND'}")
 
     print("\nBackends:")
     backends.list_backends(settings)
+
+    print("\nRemote SSH:")
+    print(f"  Host: {settings.remote_ssh_host or 'NOT CONFIGURED (AICTL_REMOTE_SSH_HOST)'}")
+    print(f"  Port: {settings.remote_ssh_port}")
 
     print(f"\nConfig: {ENV_FILE}")
     print(f"State:  {STATE_FILE}")
@@ -105,6 +114,18 @@ def main() -> int:
 
         elif args.command == "models":
             backends.list_models(settings, args.backend)
+
+        elif args.command == "tunnel":
+            action = args.tunnel_command
+            if action == "connect":
+                if not tunnels.start(settings):
+                    return 1
+            elif action == "disconnect":
+                tunnels.stop(settings)
+            elif action == "status":
+                tunnels.status(settings)
+            elif action == "attach":
+                tunnels.attach(settings)
 
         elif args.command == "backend":
             action = args.backend_command

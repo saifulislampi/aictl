@@ -10,8 +10,6 @@ def make_settings():
     return Settings(
         remote_ollama_url="http://127.0.0.1:11435",
         remote_tunnel_name="remote-llm",
-        remote_connect_command=["tunnel", "connect", "remote-llm"],
-        remote_disconnect_command=["tunnel", "disconnect", "remote-llm"],
         local_ollama_url="http://127.0.0.1:11434",
         local_ollama_session="local-ollama",
         local_ollama_start_command=["ollama", "serve"],
